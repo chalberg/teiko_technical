@@ -85,6 +85,36 @@ getCellFrequencies = """
 # Response information can be found in column "response", with
 # value "yes" for responding and value "no" for non-responding.
 #     Please only include PBMC samples.
+getMelanomaMaleResponderAvgBCell = """
+    SELECT ROUND(AVG(cc.count), 2) as avg_b_cell_count
+    FROM subjects as sub
+    JOIN samples as sam ON sub.subject_id = sam.subject_id
+    JOIN cellCounts as cc ON sam.sample_id = cc.sample_id
+    WHERE
+        sub.condition = "melanoma" AND
+        sub.sex = "M" AND
+        sub.response = "yes" AND
+        sam.sample_type = "PBMC" AND
+        sam.time_from_treatment_start = 0 AND
+        cc.population = "b_cell"
+"""
+
+getBaselineSubset = """
+    SELECT
+        sub.subject_id,
+        sub.project,
+        sub.response,
+        sub.sex,
+        sam.sample_id
+    FROM subjects as sub
+    JOIN samples as sam ON sub.subject_id = sam.subject_id
+    WHERE
+        sub.condition = "melanoma" AND
+        sub.treatment = "miraclib" AND
+        sam.sample_type = "PBMC" AND
+        sam.time_from_treatment_start = 0
+"""
+
 getMelanomaResponses = """
     WITH c AS (
         SELECT
