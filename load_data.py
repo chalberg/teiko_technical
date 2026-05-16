@@ -4,44 +4,62 @@ import pandas as pd
 from queries import (
     createSamples,
     createSubjects,
+    createCellCounts,
     insertSample,
     insertSubject,
-    getSampleCount,
-    getSubjectCount
+    insertCellCount,
 )
 
 def _create_tables(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
     cursor.execute(createSubjects)
     cursor.execute(createSamples)
+    cursor.execute(createCellCounts)
     conn.commit()
     return
+
+def _insert_subject(row: pd.Series, cursor: sqlite3.Cursor) -> None:
+    data = (
+        row.get("subject"),
+        row.get("condition"),
+        row.get("age"),
+        row.get("sex"),
+        row.get("treatment"),
+        row.get("response"),
+        row.get("project"),
+    )
+    if any(x is None for x in data):
+        return
+    cursor.execute(insertSubject, data)
+
+def _insert_sample(row: pd.Series, cursor: sqlite3.Cursor) -> None:
+    data = (
+        row.get("sample"),
+        row.get("subject"),
+        row.get("sample_type"),
+        row.get("time_from_treatment_start"),
+    )
+    if any(x is None for x in data):
+        return
+    cursor.execute(insertSample, data)
+
+def _insert_cell_counts(row: pd.Series, cursor: sqlite3.Cursor) -> None:
+    for pop in ["b_cell", "cd8_t_cell", "cd4_t_cell", "nk_cell", "monocyte"]:
+        data = (
+            row.get("sample"),
+            pop,
+            row.get(pop),
+        )
+        if any(x is None for x in data):
+            continue
+        cursor.execute(insertCellCount, data)
 
 def _populate_tables(df: pd.DataFrame, conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
     for _, row in df.iterrows():
-        subjectData = (
-            row["subject"],
-            row["condition"],
-            row["age"],
-            row["sex"],
-            row["treatment"],
-            row["response"],
-            row["project"]
-        )
-        cursor.execute(insertSubject, subjectData)
-        sampleData = (
-            row["sample"],
-            row["subject"],
-            row["sample_type"],
-            row["time_from_treatment_start"],
-            row["b_cell"],
-            row["cd8_t_cell"],
-            row["cd4_t_cell"],
-            row["nk_cell"],
-            row["monocyte"]
-        )
-        cursor.execute(insertSample, sampleData)
+        _insert_subject(row, cursor)
+        _insert_sample(row, cursor)
+        _insert_cell_counts(row, cursor)
     conn.commit()
 
 def _load_cell_counts_df(import_path: str) -> pd.DataFrame:
@@ -56,17 +74,24 @@ def _validate_table_counts(df: pd.DataFrame, conn:sqlite3.Connection) -> None:
     # check samples
     cursor = conn.cursor()
     expectedSamples = len(df)
-    cursor.execute(getSampleCount)
+    cursor.execute("SELECT COUNT(*) FROM samples")
     sampleCount = cursor.fetchone()[0]
     if sampleCount != expectedSamples:
         raise ValueError(f"Found {sampleCount} samples, but expected {expectedSamples}.")
 
     # check subjects
     expectedSubjects = len(df["subject"].unique())
-    cursor.execute(getSubjectCount)
+    cursor.execute("SELECT COUNT(*) FROM subjects")
     subjectCount = cursor.fetchone()[0]
     if subjectCount != expectedSubjects:
         raise ValueError(f"Found {subjectCount} subjects, but expected {expectedSubjects}.")
+    
+    # check cell counts - 5 counts / sample
+    expectedCellCount = int(expectedSamples * 5)
+    cursor.execute("SELECT COUNT(*) FROM cellCounts")
+    cellCount = cursor.fetchone()[0]
+    if cellCount != expectedCellCount:
+        raise ValueError(f"Found {cellCount} cell counts, but expected {expectedCellCount}.")
 
 def _init_db(import_path: str) -> None:
     """

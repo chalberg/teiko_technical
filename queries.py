@@ -24,6 +24,15 @@ createSamples = """
     )
 """
 
+createCellCounts = """
+    CREATE TABLE IF NOT EXISTS cellCounts (
+        sample_id TEXT,
+        population TEXT,
+        count INT,
+        PRIMARY KEY (sample_id, population)
+    )
+"""
+
 insertSubject = """
     INSERT OR IGNORE INTO subjects (
         subject_id,
@@ -41,13 +50,16 @@ insertSample = """
         sample_id,
         subject_id,
         sample_type,
-        time_from_treatment_start,
-        b_cell_count,
-        cd8_t_cell_count,
-        cd4_t_cell_count,
-        nk_cell_count,
-        monocyte_count
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        time_from_treatment_start
+    ) VALUES (?, ?, ?, ?)
+"""
+
+insertCellCount = """
+    INSERT INTO cellCounts (
+        sample_id,
+        population,
+        count
+    ) VALUES (?, ?, ?)
 """
 
 getSampleCount = """
@@ -56,4 +68,48 @@ getSampleCount = """
 
 getSubjectCount = """
     SELECT COUNT(*) FROM subjects;
+"""
+getCellFrequencies = """
+    SELECT
+        sample_id,
+        SUM(count) OVER (PARTITION BY sample_id) as total_count,
+        population,
+        count,
+        ROUND(100.0 * count / SUM(count) OVER (PARTITION BY sample_id), 2) as percentage
+    FROM cellCounts
+"""
+
+# Compare the differences in cell population relative frequencies of
+# melanoma patients receiving miraclib who respond (responders) versus those who do not (non-responders),
+# with the overarching aim of predicting response to the treatment miraclib.
+# Response information can be found in column "response", with
+# value "yes" for responding and value "no" for non-responding.
+#     Please only include PBMC samples.
+getMelanomaResponses = """
+    WITH c AS (
+        SELECT
+            sample_id,
+            SUM(count) OVER (PARTITION BY sample_id) as total_count,
+            population,
+            count,
+            ROUND(100.0 * count / SUM(count) OVER (PARTITION BY sample_id), 2) as percentage
+        FROM cellCounts
+    )
+    SELECT
+        sub.subject_id,
+        sub.condition,
+        sub.response,
+        sub.treatment,
+        sam.sample_id,
+        sam.sample_type,
+        c.percentage,
+        c.population
+    FROM
+        subjects as sub
+    LEFT JOIN samples as sam ON sub.subject_id = sam.subject_id
+    LEFT JOIN c ON sam.sample_id = c.sample_id
+    WHERE
+        sub.condition = "melanoma" AND
+        sub.treatment = "miraclib" AND
+        sam.sample_type = "PBMC"
 """
